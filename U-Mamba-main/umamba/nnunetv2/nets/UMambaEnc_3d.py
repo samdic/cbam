@@ -19,7 +19,7 @@ from mamba_ssm import Mamba
 from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
 from torch.cuda.amp import autocast
 from dynamic_network_architectures.building_blocks.residual import BasicBlockD
-
+from cbam import *
 class UpsampleLayer(nn.Module):
     def __init__(
             self,

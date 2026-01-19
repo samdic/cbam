@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from typing import Union, Type, List, Tuple
-
+from cbam import CBAM
 from dynamic_network_architectures.building_blocks.helper import get_matching_convtransp
 
 from torch.nn.modules.conv import _ConvNd
@@ -62,7 +62,6 @@ class MambaLayer(nn.Module):
         x_norm = self.norm(x_flat)
         x_mamba = self.mamba(x_norm)
         out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
-
         return out
 
     def forward_channel_token(self, x):
