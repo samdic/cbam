@@ -11,121 +11,105 @@ import numpy as np
 class ChannelMaxPooling(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.dim = dim
-
-    def forward(self, input : Tensor):
-        match self.dim:
+        match dim:
             case 2:
-                out = F.max_pool2d(input, kernel_size=input.size()[2:])
-                out = torch.reshape(out, (out.size()[0], out.size()[1]))
+                self.maxpool = nn.AdaptiveMaxPool2d(1)
             case 3:
-                out = F.max_pool3d(input, kernel_size=input.size()[2:])
-                out = torch.reshape(out, (out.size()[0], out.size()[1]))
-                return out
+                self.maxpool = nn.AdaptiveMaxPool3d(1)
+
+    def forward(self, input):
+        out = self.maxpool(input)
+        out = torch.reshape(out, (out.size()[0], out.size()[1]))
+        return out
 
 class ChannelAvgPooling(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.dim = dim
-
-    def forward(self, input : Tensor):
-        match self.dim:
+        match dim:
             case 2:
-                out = F.avg_pool2d(input, kernel_size=input.size()[2:])
-                out = torch.reshape(out, (out.size()[0], out.size()[1]))
-                return out
+                self.avgpool = nn.AdaptiveAvgPool2d(1)
             case 3:
-                out = F.avg_pool3d(input, kernel_size=input.size()[2:])
-                out = torch.reshape(out, (out.size()[0], out.size()[1]))
-                return out
+                self.avgpool = nn.AdaptiveAvgPool3d(1)
 
-class SpatialMaxPooling(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, input : Tensor):
-        out = torch.max(input, dim=1)[0]
-        return out
-
-class SpatialAvgPooling(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, input : Tensor):
-        out = torch.mean(input, dim=1)
+    def forward(self, input):
+        out = self.avgpool(input)
+        out = torch.reshape(out, (out.size()[0], out.size()[1]))
         return out
 
 class SpatialModule(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, nonlin=nn.Sigmoid, nonlin_kwargs={}):
         super().__init__()
         self.dim = dim
-
-    def forward(self, input : Tensor):
-        spatialMaxPool = SpatialMaxPooling()
-        spatialAvgPool = SpatialAvgPooling()
-        out1 = spatialMaxPool(input)
-        out2 = spatialAvgPool(input)
-        out = torch.cat((out1, out2), 0)
         match self.dim:
             case 2:
-                conv = nn.Conv2d(2, 1, kernel_size=1)
+                self.conv = nn.Conv2d(2, 1, kernel_size=7, padding=3)
             case 3:
-                conv = nn.Conv3d(2, 1, kernel_size=1)
-        out = conv(out)
-        out = torch.sigmoid(out)
+                self.conv = nn.Conv3d(2, 1, kernel_size=7, padding=3)
+        self.nonlin = nonlin(**nonlin_kwargs)
+
+    def forward(self, input):
+        out1, _ = torch.max(input, dim=1)
+        out2 = torch.mean(input, dim=1)
+        print(out1.shape, out2.shape)
+        out1 = out1.unsqueeze(1)
+        out2 = out2.unsqueeze(1)
+        print(out1.shape, out2.shape)
+        out = torch.cat((out1, out2), 1)
+        print(out.shape)
+        out = self.nonlin(self.conv(out))
+        print(out.shape)
         return out
 
 class ChannelModule(nn.Module):
-    def __init__(self, dim, r):
+    def __init__(self, dim, in_size, reduction_ratio, nonlin, nonlin_kwargs):
         super().__init__()
         self.dim = dim
-        self.r = r
+        self.maxChannelPool = ChannelMaxPooling(self.dim)
+        self.avgChannelPool = ChannelAvgPooling(self.dim)
+        self.mlp = MLP(in_size, reduction_ratio, nonlin, nonlin_kwargs)
 
-    def forward(self, input : Tensor):
-        maxChannelPool = ChannelMaxPooling(self.dim)
-        avgChannelPool = ChannelAvgPooling(self.dim)
-        mlp = MLP(self.r)
-        out1 = maxChannelPool(input)
-        out1 = mlp(out1)
-        out2 = avgChannelPool(input)
-        out2 = mlp(out2)
-        out = out1+out2
+    def forward(self, input):
+        out1 = self.maxChannelPool(input)
+        out1 = self.mlp(out1)
+        out2 = self.avgChannelPool(input)
+        out2 = self.mlp(out2)
+        out = out1 + out2
         out = torch.sigmoid(out)
-        for i in range(self.dim):
-            out = out.unsqueeze(-1)
+        # out = out.expand_as(input)
+        for _ in range(self.dim):
+            out.unsqueeze_(-1)
         return out
 
 
 class MLP(nn.Module):
-    def __init__(self, r):
+    def __init__(self, in_size, reduction_ratio, nonlin, nonlin_kwargs):
         super().__init__()
-        self.r = r
-    
-    def forward(self, input : Tensor):
-        mlp = []
-        mlp.append(torch.nn.Linear(input.size()[1], input.size()[1]//self.r))
-        mlp.append(torch.nn.Linear(input.size()[1]//self.r,input.size()[1]))
-        mlp = nn.Sequential(*mlp)
-        return mlp(input)
+        hidden_size = in_size//reduction_ratio
+        self.mlp = nn.Sequential(
+            torch.nn.Linear(in_size, hidden_size),
+            nonlin(**nonlin_kwargs),
+            torch.nn.Linear(hidden_size, in_size)
+        )
+
+    def forward(self, input):
+        return self.mlp(input)
 
 class CBAM(nn.Module):
-    def __init__(self, activation, activation_kwargs, norm, norm_kwargs , dim, r):
+    def __init__(self, nonlin=nn.ReLU, nonlin_kwargs={"inplace": True}, dim=3, reduction_ratio=16, in_size=20):
         super().__init__()
         assert dim in {2,3}, "dim is the dimension of the input : dim in {2,3}"
-        self.dim = dim
-        self.r = r
+        self.channelModule = ChannelModule(dim=dim, in_size=in_size, reduction_ratio=reduction_ratio, nonlin=nonlin, nonlin_kwargs=nonlin_kwargs)
+        self.spatialModule = SpatialModule(dim)
 
 
-    def forward(self, input : Tensor):
-        channelModule = ChannelModule(self.dim, self.r)
-        channelOutput = channelModule(input)
-        out = input*channelOutput
-        spatialModule = SpatialModule(self.dim)
-        spatialOutput = spatialModule(out)
-        out = out*spatialOutput
+    def forward(self, input):
+        print(input.shape)
+        out = self.channelModule(input)*input
+        print(out.shape)
+        out = self.spatialModule(out)*out
         return out
 
 if __name__ == "__main__":
-    x = torch.tensor(np.array([[[[[1,1,1], [2,2,2], [3,3,3]], [[4,4,4], [5,5,5], [6,6,6]], [[7,7,7], [8,8,8], [9,9,9]]]   ,    [[[1,1,1], [2,2,2], [3,3,3]], [[4,4,4], [5,5,5], [6,6,6]], [[7,7,7], [8,8,8], [9,9,9]]]  ]]), dtype=torch.float32)
-    test = CBAM(1,1,1,1,3,5)
-    print(test.forward(x))
+    y = torch.rand(3,7,32,32,32)
+    test = CBAM(dim=3,reduction_ratio=2, in_size=7)
+    print(test.forward(y))
