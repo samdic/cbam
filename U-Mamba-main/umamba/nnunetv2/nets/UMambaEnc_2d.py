@@ -4,7 +4,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from typing import Union, Type, List, Tuple
-from cbam import CBAM
 from dynamic_network_architectures.building_blocks.helper import get_matching_convtransp
 
 from torch.nn.modules.conv import _ConvNd
@@ -19,6 +18,7 @@ from mamba_ssm import Mamba
 from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
 from torch.cuda.amp import autocast
 from dynamic_network_architectures.building_blocks.residual import BasicBlockD
+from cbam import CBAM
 
 class UpsampleLayer(nn.Module):
     def __init__(
@@ -52,6 +52,13 @@ class MambaLayer(nn.Module):
                 expand=expand,    # Block expansion factor
         )
         self.channel_token = channel_token ## whether to use channel as tokens
+        self.cbam = CBAM(
+            activation= nn.ReLU(),
+            activation_kwargs={"inplace": True},
+            norm=nn.BatchNorm2d,
+            norm_kwargs={},
+            dim=2
+        )
 
     def forward_patch_token(self, x):
         B, d_model = x.shape[:2]
@@ -62,7 +69,8 @@ class MambaLayer(nn.Module):
         x_norm = self.norm(x_flat)
         x_mamba = self.mamba(x_norm)
         out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
-        return out
+        outcbam = self.cbam(out)
+        return outcbam
 
     def forward_channel_token(self, x):
         B, n_tokens = x.shape[:2]
@@ -75,7 +83,11 @@ class MambaLayer(nn.Module):
         x_mamba = self.mamba(x_norm)
         out = x_mamba.reshape(B, n_tokens, *img_dims)
 
-        return out
+        #pb de dims en entrée
+        outreshape = out.permute(0, 2, 1, *range(3, out.dim()))
+        outcbamreshape = self.cbam(outreshape)
+        outcbam = outcbamreshape.permute(0, 2, 1, *range(3, 4))
+        return outcbam
 
     @autocast(enabled=False)
     def forward(self, x):
