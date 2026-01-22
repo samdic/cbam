@@ -52,12 +52,14 @@ class MambaLayer(nn.Module):
                 expand=expand,    # Block expansion factor
         )
         self.channel_token = channel_token ## whether to use channel as tokens
+
         self.cbam = CBAM(
             activation= nn.ReLU(),
             activation_kwargs={"inplace": True},
             norm=nn.BatchNorm2d,
             norm_kwargs={},
-            dim=2
+            dim=self.dim,
+            r = 16
         )
 
     def forward_patch_token(self, x):
