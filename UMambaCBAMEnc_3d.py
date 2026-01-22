@@ -177,7 +177,7 @@ class ResidualMambaCBAMEncoder(nn.Module):
             feature_map_sizes.append([i // j for i, j in zip(feature_map_size, strides[s])])
             feature_map_size = feature_map_sizes[-1]
             if np.prod(feature_map_size) <= features_per_stage[s]:
-                do_channel_token[s] = False
+                do_channel_token[s] = True 
             
 
         print(f"feature_map_sizes: {feature_map_sizes}")
