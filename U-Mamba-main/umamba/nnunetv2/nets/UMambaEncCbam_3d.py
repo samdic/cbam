@@ -41,12 +41,33 @@ class UpsampleLayer(nn.Module):
         x = self.conv(x)
         return x
 
-class MambaLayer(nn.Module):
-    def __init__(self, dim, d_state = 16, d_conv = 4, expand = 2, channel_token = False):
+class MambaLayerCbam(nn.Module):
+    def __init__(self, dict_config, dim, d_state = 16, d_conv = 4, expand = 2, channel_token = False):
         super().__init__()
         print(f"MambaLayer: dim: {dim}")
         self.dim = dim
         self.norm = nn.LayerNorm(dim)
+        if "activation" in dict_config:
+            self.activation = dict_config["activation"]
+        else:
+            self.activation = nn.Relu
+        if self.activation_kwargs in dict_config:
+            self.activation_kwargs = dict_config["activation_kwargs"]
+        else:
+            self.activation_kwargs = {}
+        if self.norm in dict_config:
+            self.norm = dict_config["norm"]
+        else:
+            self.norm = nn.BatchNorm3d
+        if self.norm_kwargs in dict_config:
+            self.norm_kwargs = dict_config["norm_kwargs"]
+        else:
+            self.norm_kwargs = {}
+        if self.r in dict_config:
+            self.r = dict_config["r"]
+        else:
+            self.r = 16
+        self.dim = dim
         self.mamba = Mamba(
                 d_model=dim, # Model dimension d_model
                 d_state=d_state,  # SSM state expansion factor
@@ -55,11 +76,12 @@ class MambaLayer(nn.Module):
         )
         self.channel_token = channel_token ## whether to use channel as tokens
         self.cbam = CBAM(
-            activation=nn.ReLU(),
-            activation_kwargs={"inplace": True},
-            norm=nn.BatchNorm3d,
-            norm_kwargs={},
-            dim=3
+            self.activation,
+            self.activation_kwargs,
+            self.norm,
+            self.norm_kwargs,
+            self.dim,
+            self.r
         )
 
     def forward_patch_token(self, x):
@@ -70,7 +92,6 @@ class MambaLayer(nn.Module):
         x_flat = x.reshape(B, d_model, n_tokens).transpose(-1, -2)
         x_norm = self.norm(x_flat)
         x_mamba = self.mamba(x_norm)
-        out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
         out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
         outcbam = self.cbam(out)
         return outcbam
@@ -144,8 +165,9 @@ class BasicResBlock(nn.Module):
         y += x
         return self.act2(y)
     
-class ResidualMambaEncoder(nn.Module):
+class ResidualMambaEncoderCbam(nn.Module):
     def __init__(self,
+                 dict_config,
                  input_size: Tuple[int, ...],
                  input_channels: int,
                  n_stages: int,
@@ -192,7 +214,7 @@ class ResidualMambaEncoder(nn.Module):
             if np.prod(feature_map_size) <= features_per_stage[s]:
                 do_channel_token[s] = True
             
-
+        self.dict_config = dict_config
         print(f"feature_map_sizes: {feature_map_sizes}")
         print(f"do_channel_token: {do_channel_token}")
 
@@ -267,8 +289,8 @@ class ResidualMambaEncoder(nn.Module):
             )
 
             mamba_layers.append(
-                MambaLayer(
-                    dim = np.prod(feature_map_sizes[s]) if do_channel_token[s] else features_per_stage[s],
+                MambaLayerCbam(
+                    dim = np.prod(dict_config, feature_map_sizes[s]) if do_channel_token[s] else features_per_stage[s],
                     channel_token = do_channel_token[s]
                 )
             )
@@ -425,8 +447,9 @@ class UNetResDecoder(nn.Module):
                 output += np.prod([self.num_classes, *skip_sizes[-(s+1)]], dtype=np.int64)
         return output
     
-class UMambaEnc(nn.Module):
+class UMambaEncCbam(nn.Module):
     def __init__(self,
+                 dict_config,
                  input_size: Tuple[int, ...],
                  input_channels: int,
                  n_stages: int,
@@ -459,7 +482,10 @@ class UMambaEnc(nn.Module):
 
         for s in range(math.ceil((n_stages - 1) / 2 + 0.5), n_stages - 1):
             n_conv_per_stage_decoder[s] = 1
-
+        if dict_config:
+            self.dict_config = dict_config
+        else:
+            self.dict_config = {}
 
         assert len(n_blocks_per_stage) == n_stages, "n_blocks_per_stage must have as many entries as we have " \
                                                   f"resolution stages. here: {n_stages}. " \
@@ -468,7 +494,8 @@ class UMambaEnc(nn.Module):
                                                                 f"as we have resolution stages. here: {n_stages} " \
                                                                 f"stages, so it should have {n_stages - 1} entries. " \
                                                                 f"n_conv_per_stage_decoder: {n_conv_per_stage_decoder}"
-        self.encoder = ResidualMambaEncoder(
+        self.encoder = ResidualMambaEncoderCbam(
+            dict_config,
             input_size,
             input_channels,
             n_stages,
@@ -519,10 +546,11 @@ def get_umamba_enc_3d_from_plans(
 
     label_manager = plans_manager.get_label_manager(dataset_json)
 
-    segmentation_network_class_name = 'UMambaEnc'
-    network_class = UMambaEnc
+    segmentation_network_class_name = 'UMambaEncCbam'
+    network_class = UMambaEncCbam
     kwargs = {
-        'UMambaEnc': {
+        'UMambaEncCbam': {
+            'dict_config': {},
             'input_size': configuration_manager.patch_size,
             'conv_bias': True,
             'norm_op': get_matching_instancenorm(conv_op),
