@@ -42,11 +42,12 @@ class UpsampleLayer(nn.Module):
         return x
 
 class MambaLayerCbam(nn.Module):
-    def __init__(self, dict_config, dim, d_state = 16, d_conv = 4, expand = 2, channel_token = False):
+    def __init__(self, dict_config, dim, input_channels_CBAM, d_state = 16, d_conv = 4, expand = 2, channel_token = False):
         super().__init__()
         print(f"MambaLayer: dim: {dim}")
         self.dim = dim
         self.norm = nn.LayerNorm(dim)
+        self.input_channels_CBAM = input_channels_CBAM
         if "activation" in dict_config:
             self.activation = dict_config["activation"]
         else:
@@ -76,12 +77,11 @@ class MambaLayerCbam(nn.Module):
         )
         self.channel_token = channel_token ## whether to use channel as tokens
         self.cbam = CBAM(
-            self.activation,
-            self.activation_kwargs,
-            self.norm,
-            self.norm_kwargs,
-            self.dim,
-            self.r
+            nonlin = self.activation,
+            nonlin_kwargs = self.activation_kwargs,
+            dim = self.dim,
+            reduction_ratio = self.r,
+            in_size = self.input_channels_CBAM
         )
 
     def forward_patch_token(self, x):
@@ -291,7 +291,8 @@ class ResidualMambaEncoderCbam(nn.Module):
             mamba_layers.append(
                 MambaLayerCbam(
                     dim = np.prod(dict_config, feature_map_sizes[s]) if do_channel_token[s] else features_per_stage[s],
-                    channel_token = do_channel_token[s]
+                    channel_token = do_channel_token[s],
+                    input_channels_CBAM = features_per_stage[s]
                 )
             )
 

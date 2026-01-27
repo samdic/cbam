@@ -37,14 +37,14 @@ class ChannelAvgPooling(nn.Module):
         return out
 
 class SpatialModule(nn.Module):
-    def __init__(self, dim, nonlin=nn.Sigmoid, nonlin_kwargs={}):
+    def __init__(self, dim, nonlin=nn.Sigmoid, nonlin_kwargs={},kernel_size=7):
         super().__init__()
         self.dim = dim
         match self.dim:
             case 2:
-                self.conv = nn.Conv2d(2, 1, kernel_size=7, padding=3)
+                self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=3)
             case 3:
-                self.conv = nn.Conv3d(2, 1, kernel_size=7, padding=3)
+                self.conv = nn.Conv3d(2, 1, kernel_size=kernel_size, padding=3)
         self.nonlin = nonlin(**nonlin_kwargs)
 
     def forward(self, input):
@@ -95,11 +95,11 @@ class MLP(nn.Module):
         return self.mlp(input)
 
 class CBAM(nn.Module):
-    def __init__(self, nonlin=nn.ReLU, nonlin_kwargs={"inplace": True}, dim=3, reduction_ratio=16, in_size=20):
+    def __init__(self, nonlin=nn.ReLU, nonlin_kwargs={"inplace": True}, dim=3, reduction_ratio=16, in_size=20, kernel_size=7):
         super().__init__()
         assert dim in {2,3}, "dim is the dimension of the input : dim in {2,3}"
         self.channelModule = ChannelModule(dim=dim, in_size=in_size, reduction_ratio=reduction_ratio, nonlin=nonlin, nonlin_kwargs=nonlin_kwargs)
-        self.spatialModule = SpatialModule(dim)
+        self.spatialModule = SpatialModule(dim, kernel_size=kernel_size)
 
 
     def forward(self, input):
