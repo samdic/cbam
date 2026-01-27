@@ -119,18 +119,7 @@ class CBAM(nn.Module):
     Combines Channel Attention and Spatial Attention sequentially
     Fully parameterizable with configuration dictionaries
     """
-    def __init__(
-        self,
-        dim,
-        channels,
-        reduction_ratio=16,
-        spatial_kernel_size=7,
-        nonlin=None,
-        nonlin_kwargs=None,
-        # Options
-        no_spatial=False,
-        no_channel=False
-    ):
+    def __init__( self, dim, channels, reduction_ratio=16, spatial_kernel_size=7, nonlin=None, nonlin_kwargs=None, no_spatial=False, no_channel=False):
         """
         Args:
             channels: Number of input channels
