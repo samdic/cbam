@@ -115,7 +115,7 @@ class SpatialAttention(nn.Module):
 
 class CBAM(nn.Module):
     """
-    Convolutional Block Attention Module for 3D data
+    Convolutional Block Attention Module for 2D and 3D data
     Combines Channel Attention and Spatial Attention sequentially
     Fully parameterizable with configuration dictionaries
     """
@@ -123,11 +123,8 @@ class CBAM(nn.Module):
         self,
         dim,
         channels,
-        # Channel attention params
         reduction_ratio=16,
-        # Spatial attention params
         spatial_kernel_size=7,
-        # Shared params
         nonlin=None,
         nonlin_kwargs=None,
         # Options
@@ -137,8 +134,6 @@ class CBAM(nn.Module):
         """
         Args:
             channels: Number of input channels
-            
-            
         """
         super(CBAM, self).__init__()
         
