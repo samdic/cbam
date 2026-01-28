@@ -149,12 +149,6 @@ class CBAM(nn.Module):
             )
     
     def forward(self, x):
-        """
-        Args:
-            x: Input tensor of shape (B, C, D, H, W)
-        Returns:
-            Attended features of shape (B, C, D, H, W)
-        """
         # Apply channel attention
         if not self.no_channel:
             x = self.channel_attention(x)
